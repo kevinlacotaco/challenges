@@ -1,0 +1,124 @@
+<!doctype html>
+<html>
+<head>
+    <title>elsevier Challenge</title>
+
+    <link rel="stylesheet" href="http://cdn.datatables.net/1.10.19/css/jquery.dataTables.min.css" />
+    <script type="text/javascript" src="https://code.jquery.com/jquery-3.3.1.min.js"></script>
+    <script type="text/javascript" src="http://cdn.datatables.net/1.10.19/js/jquery.dataTables.min.js"></script>
+</head>
+<body>
+    <h1>Patient Data</h1>
+    <label>Patient search (try: 1316024): <input type="search" id="patient-searcher" /></label>
+
+    <div id="patient-demo-data">
+    </div>
+    <div id="patient-conditions">
+        <table id="patient-table">
+            <thead>
+                <tr>
+                    <th>Condition Name</th>
+                    <th>Date Recorded</th>
+                    <th>Link</th>
+                </tr>
+            </thead>
+            <tbody>
+            </tbody>
+        </table>
+    </div>
+    <script type="text/javascript">
+
+        function getPatientDemographicData(id) {
+            //Does not work in IE11 - can use the native xmlhttprequest but thought IE11 is no longer a 'modern' browser
+            return fetch('https://fhir-open.sandboxcerner.com/dstu2/0b8a0111-e8e6-4c26-a91c-5069cbc6b1ca/Patient/' + id, {
+                headers: {
+                    'Accept': 'application/json+fhir'
+                }
+            })
+                .then(function (resp) {
+                    return resp.json();
+                })
+                .then(function (jsonResp) {
+                    //Saw there was already markup in the response for the demographic data so I used that
+                    //Could have built it in a different format from the birthDate, name[0].text, gender
+                    return jsonResp.text.div;
+                });
+        }
+
+        function populateDemographic(markup) {
+            //Because we are using innerHTML we could be susceptible here to xss attacks escaping could be benefitial.
+            document.getElementById('patient-demo-data').innerHTML = markup;
+        }
+
+        function emptyDemographicData() {
+            document.getElementById('patient-demo-data').innerHTML = '';
+        }
+
+        function getConditionsForPatient(id) {
+
+            return fetch('https://fhir-open.sandboxcerner.com/dstu2/0b8a0111-e8e6-4c26-a91c-5069cbc6b1ca/Condition?clinicalStatus=active&patient=' + id, {
+                headers: {
+                    'Accept': 'application/json+fhir'
+                }
+            })
+                .then(function (resp) {
+                    return resp.json();
+                })
+                .then(function (jsonResp) {
+                    return jsonResp.entry.filter(function (entry) {
+                        return entry.resource.clinicalStatus === 'active';
+                    }).map(function (entry) {
+                        //Data table wants an array of arrays (where the index maps to the column)
+                        //DataTables is a lib that helped get sorting, searching and paging out of the box
+                        return [
+                            entry.resource.code.text,
+                            entry.resource.dateRecorded || 'Unknown',
+                            '<a href="https://www.ncbi.nlm.nih.gov/pubmed/?term=' + window.encodeURIComponent(entry.resource.code.text) + '">Link to Condition</a>'
+                        ];
+                    });
+                });
+        }
+
+        function populateConditionsTable(entries) {
+            var table = $('#patient-table').DataTable();
+
+            table.clear();
+            table.draw();
+            table.rows.add(entries);
+            table.draw();
+        }
+
+        function emptyTable() {
+            var table = $('#patient-table').DataTable();
+
+            table.clear();
+            table.draw();
+        }
+
+        function initialize() {
+            return new Promise(function (resolve, reject) {
+                $('#patient-table').DataTable();
+
+                resolve();
+            });
+        }
+
+        initialize().then(function () {
+            var timeout = null;
+            //Wanted to check various other patients to see how data is returned so wanted to search
+            $('#patient-searcher').on('input', function (event) {
+                window.clearTimeout(timeout);
+                timeout = window.setTimeout(function () {
+                    var id = event.target.value;
+                    getPatientDemographicData(id)
+                        .then(populateDemographic)
+                        .catch(emptyDemographicData);
+                    getConditionsForPatient(id)
+                        .then(populateConditionsTable)
+                        .catch(emptyTable);
+                }, 500);
+            })
+        });
+    </script>
+</body>
+</html>
